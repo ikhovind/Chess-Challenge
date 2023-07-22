@@ -1,44 +1,76 @@
 ﻿using ChessChallenge.API;
 using System;
 
+
 public class MyBot : IChessBot
 {
     public Move Think(Board board, Timer timer)
     {
         Move[] moves = board.GetLegalMoves();
-
-        board.MakeMove(moves[0]);
-        var maxVal = Eval(board);
-        board.UndoMove(moves[0]);
-        var bestMove = moves[0];
-
-        while (timer.MillisecondsRemaining > 10)
+        int finishTime = timer.MillisecondsRemaining - (timer.MillisecondsRemaining / 30);
+        uint depth = 1;
+        Move bestMove = moves[0];
+        int bestEval = int.MinValue;
+        while (timer.MillisecondsRemaining > finishTime)
         {
+            Console.WriteLine("Searching depth: " + depth + " with " + timer.MillisecondsRemaining + " ms remaining");
             foreach (Move move in moves)
             {
                 board.MakeMove(move);
-                var score = Eval(board);
-                if (score > maxVal)
+                int move_eval = evalPosition(board, depth);
+                board.UndoMove(move);
+                if (move_eval > bestEval)
                 {
                     bestMove = move;
-                    maxVal = score;
+                    bestEval = move_eval;
                 }
-                board.UndoMove(move);
             }
-            return bestMove;
+            Console.WriteLine("Finished depth: " + depth + " with " + timer.MillisecondsRemaining + " ms remaining");
+            depth++;
         }
-        return moves[0];
+        return bestMove;
     }
 
-    private int Eval(Board board)
+    private int evalPosition(Board board, uint depth)
+    {
+        if (depth == 0)
+        {
+            return evalStatic(board);
+        }
+        if (board.IsInCheckmate())
+        {
+            // Shallow mate is slighty worse than very deep mate
+            return -10000 - (int)depth;
+        }
+        if (board.IsDraw())
+        {
+            return 0;
+        }
+        Move[] moves = board.GetLegalMoves();
+        int maxEval = int.MinValue;
+        foreach (Move move in moves)
+        {
+            board.MakeMove(move);
+            // After we have made a move - want to know how good our oponents position is
+            var eval = -evalPosition(board, depth - 1);
+            board.UndoMove(move);
+            if (eval > maxEval)
+            {
+                maxEval = eval;
+            }
+        }
+        return maxEval;
+    }
+
+    private int evalStatic(Board board)
     {
         int score = getValueDiff(board, board.IsWhiteToMove);
         return score;
     }
     private int getValueDiff(Board board, bool white)
     {
-        // Eval after black has made move - so white is to move but want points from black perspective
-        return getPieceValues(board, !white) - getPieceValues(board, white);
+        // Get value of whoever is going to make move
+        return getPieceValues(board, white) - getPieceValues(board, !white);
     }
     private int getPieceValues(Board board, bool white)
     {
