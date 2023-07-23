@@ -1,5 +1,6 @@
 ﻿using ChessChallenge.API;
 using System;
+using System.Collections.Generic;
 
 
 public class MyBot : IChessBot
@@ -8,21 +9,21 @@ public class MyBot : IChessBot
     {
         Move[] moves = board.GetLegalMoves();
         int finishTime = timer.MillisecondsRemaining - (timer.MillisecondsRemaining / 30);
-        uint depth = 1;
+        int depth = 1;
         Move bestMove = moves[0];
         int bestEval = int.MinValue;
         while (timer.MillisecondsRemaining > finishTime)
         {
-            Console.WriteLine("Searching depth: " + depth + " with " + timer.MillisecondsRemaining + " ms remaining");
             foreach (Move move in moves)
             {
                 board.MakeMove(move);
-                int move_eval = evalPosition(board, depth);
+                int move_eval = -evalPosition(board, depth, int.MinValue, int.MaxValue, false);
                 board.UndoMove(move);
                 if (move_eval > bestEval)
                 {
                     bestMove = move;
                     bestEval = move_eval;
+                    Console.WriteLine("Found new best move with evalution: " + move_eval);
                 }
             }
             Console.WriteLine("Finished depth: " + depth + " with " + timer.MillisecondsRemaining + " ms remaining");
@@ -31,10 +32,21 @@ public class MyBot : IChessBot
         return bestMove;
     }
 
-    private int evalPosition(Board board, uint depth)
+    private Move[] getOrderedMoves(Board board, bool captures)
     {
-        if (depth == 0)
+        Move[] moves = board.GetLegalMoves(captures);
+        if (!captures)
         {
+            Array.Sort(moves, new MoveOrderingClass());
+        }
+        return moves;
+    }
+
+    private int evalPosition(Board board, int depth, int alpha, int beta, bool quiesence)
+    {
+        if (depth == 0 && !quiesence)
+        {
+            // quiesence uses too much time currently so not currently implemented
             return evalStatic(board);
         }
         if (board.IsInCheckmate())
@@ -46,20 +58,30 @@ public class MyBot : IChessBot
         {
             return 0;
         }
-        Move[] moves = board.GetLegalMoves();
-        int maxEval = int.MinValue;
+        // if quiesence then we only care about captures
+        Move[] moves = getOrderedMoves(board, quiesence);
+        // For when quiesence search has run out of legal captures to examine
+        if (moves.Length == 0)
+        {
+            Console.WriteLine("Reached end of quiesence depth: " + depth);
+            return evalStatic(board);
+        }
         foreach (Move move in moves)
         {
             board.MakeMove(move);
-            // After we have made a move - want to know how good our oponents position is
-            var eval = -evalPosition(board, depth - 1);
+            // After we have made a move - a high score is good for our oponent therefore reversese
+            var eval = -evalPosition(board, depth - 1, -beta, -alpha, quiesence);
             board.UndoMove(move);
-            if (eval > maxEval)
+            if (eval >= beta)
             {
-                maxEval = eval;
+                return beta;
+            }
+            if (eval >= alpha)
+            {
+                alpha = eval;
             }
         }
-        return maxEval;
+        return alpha;
     }
 
     private int evalStatic(Board board)
@@ -79,5 +101,34 @@ public class MyBot : IChessBot
         + board.GetPieceList(PieceType.Bishop, white).Count * 3
         + board.GetPieceList(PieceType.Queen, white).Count * 9
         + board.GetPieceList(PieceType.Rook, white).Count * 5;
+    }
+
+    public class MoveOrderingClass : Comparer<Move>
+    {
+        public override int Compare(Move a, Move b)
+        {
+            if (a.IsPromotion) return 1;
+            if (b.IsPromotion) return -1;
+            if (a.IsCapture)
+            {
+                if (b.IsCapture)
+                {
+                    // Order capture of strong piece with weak piece first
+                    return ((int)a.CapturePieceType - (int)a.MovePieceType) - ((int)b.CapturePieceType - (int)b.MovePieceType);
+                }
+                // Order captures before non captures
+                return 1;
+            }
+            if (b.IsCapture) return -1;
+            if (a.MovePieceType == PieceType.Pawn)
+            {
+                return 1;
+            }
+            else if (b.MovePieceType == PieceType.Pawn)
+            {
+                return -1;
+            }
+            return 0;
+        }
     }
 }
